@@ -183,7 +183,7 @@ class MusicDowndloader:
 				url_tuple = self.music_info_queue.get(True)
 				music_url = url_tuple[-1]
 				music_dir = url_tuple[0]
-				self.mk_dirs_for_music(music_dir)
+				mk_dirs_for_music(music_dir)
 				music_name = url_tuple[1].replace("/", "&")
 				print("music_url: %s, music_name: %s " % (music_url, music_name))
 			
@@ -199,11 +199,84 @@ class MusicDowndloader:
 		
 		print("结束爬虫")
 	
-	# 根据信息创建歌曲分类文件夹
-	def mk_dirs_for_music(self, dirs):
-		if not os.path.exists(dirs):
-			print("创建目录:%s" % dirs)
-			os.makedirs(dirs, exist_ok=True)
+	"""根据类型下载  http://www.yymp3.com/Art/10_24.html"""
+	# 提供此函数，用于手动按歌星分类下载歌曲
+	def get_music_by_art(self, path, url):
+		try:
+			soup = self.get_beautiful_soap(url)
+			cate_by_letter = soup.findAll('ul', 'Cate_slist c')
+			for cate in cate_by_letter:
+				# 获得歌星列表
+				cate_list = cate.findAll('a')
+				for cate_one in cate_list:
+					self.get_music_by_author(path + "\\" + replace_invalid_str(cate_one.text), self.url + cate_one['href'])
+		except IOError as e:
+			print("ERROR: %s" % e)
+	
+	"""根据歌手下载  http://www.yymp3.com/Singer/10817.htm"""
+	# 提供此函数，用于手动按歌星下载歌曲
+	def get_music_by_author(self, path, url):
+		try:
+			
+			soup = self.get_beautiful_soap(url)
+			# 获取专辑列表
+			album_list = soup.findAll('a', 'A_name')
+			for album in album_list:
+				# 根据专辑下载
+				self.get_music_by_album(path + "\\" + replace_invalid_str(album.text), self.url + album['href'])
+		except IOError as e:
+			print("ERROR: %s" % e)
+	
+	"""根据专辑下载  http://www.yymp3.com/Album/23252.htm"""
+	# 提供此函数，用于手动按专辑下载歌曲
+	def get_music_by_album(self, path, url):
+		try:
+			soup = self.get_beautiful_soap(url)
+			# 获取专辑页面中，歌曲列表
+			music_list = soup.findAll("span", "s2")
+			for music in music_list:
+				# 歌曲url
+				music_a = music.find('a')
+				if music_a:
+					self.direct_download(path, self.url + music_a['href'])
+		except IOError as e:
+			print("ERROR: %s" % e)
+	
+	"""根据url直接下载歌曲"""
+	# 提供此函数，用于手动按歌曲url下载歌曲
+	def direct_download(self, path, url):
+		soup = self.get_beautiful_soap(url)
+		try:
+			music_data_script = soup.findAll('script')
+			for script in music_data_script:
+				if script.text.rfind('song_data') != -1:
+					music_data = script.text.split("|")
+					music_url = music_data[4].lower().replace(".wma", ".mp3")
+					music_url = DOWNLOAD_URL + music_url
+					type_name = path.replace("@@@", "\\")
+					music_name = replace_invalid_str(music_data[1]) + ".mp3"
+					mk_dirs_for_music(type_name)
+					print("music_url: %s, music_name: %s " % (music_url, music_name))
+					
+					music_full_path = type_name + "\\" + music_name
+					if not os.path.exists(music_full_path):
+						with request.urlopen(music_url) as web:
+							# 为保险起见使用二进制写文件模式，防止编码错误
+							with open(music_full_path, 'wb') as outfile:
+								outfile.write(web.read())
+								outfile.close()
+					break
+		except IndexError as e:
+			print("ERROR in get_music_info: %s, url: %s" % (e, url))
+		except IOError as ioe:
+			print("ERROR: %s" % ioe)
+	
+	
+# 根据信息创建歌曲分类文件夹
+def mk_dirs_for_music(self, dirs):
+	if not os.path.exists(dirs):
+		print("创建目录:%s" % dirs)
+		os.makedirs(dirs, exist_ok=True)
 
 
 # 获取已经下载过的歌曲列表
@@ -215,8 +288,8 @@ def get_exist_dir(dir_list):
 	ret_list = []
 	if dir_list:
 		for temp_dir in dir_list:
+			# 对遍历出来的多个目录list进行合并
 			ret_list.extend(os.listdir(temp_dir))
-	
 	return ret_list
 
 
@@ -236,6 +309,12 @@ def replace_invalid_str(info):
 
 
 if __name__ == '__main__':
+	# 下载特定分类歌曲
+	# music_downloader = MusicDowndloader(INDEX_URL)
+	# music_downloader.get_music_by_art('h:\\music\\喊麦\\', 'http://www.yymp3.com/Art/10_20.html')
+	# pass
+	# 结束：下载特定分类歌曲
+	
 	# 开十个线程下载
 	music_downloader = MusicDowndloader(INDEX_URL)
 	thread_count = 0
@@ -244,7 +323,7 @@ if __name__ == '__main__':
 		t.setName("Thread" + str(thread_count))
 		t.start()
 		thread_count += 1
-	
+
 	music_type_1_list = music_downloader.get_type_level_1(music_downloader.url)
 	# 找出已经下载过的歌曲目录，重复启动爬虫下载时，自动过滤掉，避免多余的请求
 	# path_list_all = get_path('H:\\music\\', 'F:\\music\\', 'G:\\music\\', 'E:\\entermainment\\music\\yymp3\\')
